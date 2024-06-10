@@ -12,11 +12,9 @@ int wmain(int argc, wchar_t **argv) {
         return 0;
     }
 
-    uint64_t load_lib_x64_addr =
-        (uint64_t) GetProcAddress(GetModuleHandleA("kernel32"), "LoadLibraryW");
+    dll_injector::Injector injector(dll_injector::DefaultInit::X64);
     std::println("LoadLibraryW address = {:#018x}",
-                 (uintptr_t) load_lib_x64_addr);
-    dll_injector::Injector injector(load_lib_x64_addr, 0);
+                 (uintptr_t) injector.get_load_library_x64_addr());
 
     std::vector<std::wstring> dll_names;
     dll_names.reserve(argc - 2);
@@ -24,21 +22,19 @@ int wmain(int argc, wchar_t **argv) {
         dll_names.emplace_back(argv[i]);
     }
 
-    const std::wstring process_name = argv[1];
-    const std::vector<dll_injector::ProcessInfo> process_infos =
-        dll_injector::get_process_info_values();
-    const auto target_it =
-        std::find_if(process_infos.cbegin(), process_infos.cend(),
-                     [&process_name](const dll_injector::ProcessInfo &pi) {
-                         return pi.name == process_name;
-                     });
-    if (target_it == std::cend(process_infos)) {
-        std::wcout << "Could not find a process named " << process_name << "\n";
-        return -1;
+    bool res = false;
+    try {
+        const uint32_t pid = std::stoul(argv[1]);
+        std::println("Injecting into process with PID = {}", pid);
+        res = injector.inject_dlls(pid, dll_names);
+    } catch (...) {
+        const std::wstring process_name = argv[1];
+        std::wcout << "Injecting into process with name: " << process_name
+                   << "\n";
+        res = injector.inject_dlls(process_name, dll_names);
     }
-    std::wcout << process_name << ": PID = " << target_it->pid << "\n";
 
-    if (!injector.inject_multiple_dlls(target_it->pid, dll_names)) {
+    if (!res) {
         std::println("Injection failed");
         return -2;
     }
@@ -48,7 +44,9 @@ int wmain(int argc, wchar_t **argv) {
 
 void usage(const wchar_t *prog_name) {
     std::wcout
-        << "Usage: " << prog_name << " <process_name> <dll_names>\n"
-        << "process_name - target which dlls are to be injected to\n"
-           "   dll_names - whitespace-seperated paths to dlls to inject\n\n";
+        << "Usage: " << prog_name
+        << " <process_name|pid> <dll_names>\n"
+           "process_name - name of the target process\n"
+           "         pid - id of the target process\n"
+           "   dll_names - whitespace-separated paths to dlls to inject\n\n";
 }
